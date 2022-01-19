@@ -1,6 +1,6 @@
 # Youtube-Downloader
 
-A simple open source downloader for Youtube videos, written in python.
+A simple open source downloader for downloading Youtube videos (mp4), written in python.
 
 To create the exe from source, run
 
