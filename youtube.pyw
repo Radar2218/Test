@@ -1,13 +1,14 @@
 # pyinstaller --add-data "./youtube_icon.ico;." --onefile --windowed --icon=youtube_icon.ico --name "Downloader" youtube.pyw
 # example video link: https://www.youtube.com/watch?v=WY230qkLv_8
 
+from typing import Literal
 from urllib.error import URLError
 from pytube import YouTube, Stream
 from pytube.exceptions import AgeRestrictedError, LiveStreamError, VideoPrivate, VideoUnavailable, PytubeError, MaxRetriesExceeded
 from tkinter import INSIDE, Frame, Label, StringVar, TclError, Tk, Entry, Button, Listbox, Variable
-from tkinter.filedialog import askdirectory
-from tkinter.messagebox import askokcancel, showwarning
-from os.path import normpath, abspath, exists, isdir, join
+from tkinter.filedialog import askdirectory, asksaveasfilename
+from tkinter.messagebox import askokcancel, showwarning, askyesnocancel
+from os.path import normpath, abspath, exists, join, isfile, split
 from threading import Thread
 try: from sys import _MEIPASS
 except ImportError: pass
@@ -60,7 +61,7 @@ class Download_Thread(Thread):
     def run(self) -> None:
         length = len(self.downloader.downloads)
         self.downloader.counter_var.set("current downloads: {}".format(length if length >= 1 else "none"))
-        try: self.stream.download(self.path, self.file, skip_existing = False, max_retries = None)
+        try: self.stream.download(self.path, self.file, skip_existing = False)
         except URLError:
             self.downloader.downloads.remove(self)
             showwarning("No internet connection", "Please connect to the internet to download anything")
@@ -94,24 +95,12 @@ class Downloader(Tk):
         self.id = Entry(self.frame, textvariable = self.id_var, background = "#fcc")
         self.id.place(x = 70, y = 10, relwidth = 1, width = -80, height = 20, bordermode = INSIDE)
 
-        Label(self.frame, text = "path", background = "#fff").place(x = 10, y = 40, width = 50, height = 20, bordermode = INSIDE)
-
-        # input for saving path (directory; file extension always .mp4)
-        self.path_var = StringVar(self.frame, "")
-        self.path_var.trace("w", self.on_new_path)
-        self.path = Entry(self.frame, textvariable = self.path_var, background = "#fcc")
-        self.path.place(x = 70, y = 40, relwidth = 1, width = -150, height = 20, bordermode = INSIDE)
-
-        # button for choosing a path
-        self.chooser = Button(self.frame, borderwidth = 1, text = "choose", background = "#fff", activebackground = "#eee", command = self.choose_path)
-        self.chooser.place(relx = 1, x = -60, y = 40, width = 50, height = 20, bordermode = INSIDE)
-
-        Label(self.frame, text = "available downloads:", background = "#fff").place(x = 10, y = 80, width = 120, height = 20, bordermode = INSIDE)
+        Label(self.frame, text = "available downloads:", background = "#fff").place(x = 10, y = 45, width = 120, height = 20, bordermode = INSIDE)
 
         # list of available downloads
         self.list_var = Variable(self.frame, [])
         self.list = Listbox(self.frame, selectbackground = "#eee", selectforeground = "#000", listvariable = self.list_var)
-        self.list.place(x = 10, y = 110, relwidth = 1, width = -20, relheight = 1, height = -150, bordermode = INSIDE)
+        self.list.place(x = 10, y = 70, relwidth = 1, width = -20, relheight = 1, height = -110, bordermode = INSIDE)
         self.list.insert(-1, *["test"] * 10)
 
         # counter label for currently running downloads
@@ -153,13 +142,6 @@ class Downloader(Tk):
             else: showwarning("Invalid video id", "Please enter a valid video id")
             return
 
-        # possible error because of invalid path
-        path = self.path_var.get()
-        if not(self.validate_path(path)):
-            showwarning("Invalid path", "Please choose another path to save your file")
-            return
-        path = abspath(normpath(path))
-
         # error: no selection
         try: selection: list[str] = self.list.selection_get().split(", ")
         except TclError:
@@ -178,21 +160,25 @@ class Downloader(Tk):
             showwarning("No internet connection", "Please connect to the internet to download anything")
             return
         
-        # warn because of overriding a file
-        if exists(normpath(path + "/" + stream.default_filename)):
-            answer = askokcancel("Override file", "The file to download does already exist in the selected folder.\nDo you want to override it?")
-            if not(answer): return
+        # get valid file
+        path = self.choose_path(stream.default_filename)
+        if path == None: return
+        elif path == False:
+            showwarning("Invalid path", "Please choose another path to save your file")
+            return
         
         # download
-        download = Download_Thread(self, stream, path, stream.default_filename)
+        download = Download_Thread(self, stream, *split(path))
         self.downloads.append(download)
         download.start()
 
-    def choose_path(self) -> None:
-        # choose path for saving mp4
-        dir = askdirectory(mustexist = True)
-        if not(dir.strip() == "" or dir == None):
-            self.path_var.set(dir)
+    def choose_path(self, default_filename: str) -> str | Literal[False] | None:
+        file = asksaveasfilename(defaultextension = "mp4", initialfile = default_filename)
+        if not(file): return None
+        if not(self.validate_path(file)):
+            return False
+        path = abspath(normpath(file))
+        return path
     
     def on_new_id(self, *_) -> None:
         # start updating available downloads on new url / id
@@ -215,18 +201,12 @@ class Downloader(Tk):
                 info = " audio, {}, {}byte".format(stream.abr, stream.filesize_approx)
             result.append(info)
         return result
-    
-    def on_new_path(self, *_) -> None:
-        # validate on new path
-        if not(self.validate_path(self.path_var.get())):
-            self.path.configure(background = "#fcc")
-        else: self.path.configure(background = "#fff")
         
     def validate_path(self, path: str) -> bool:
         # validate the given path
         if path.strip() == "": return False
         path = abspath(normpath(path))
-        if exists(path) and isdir(path):
+        if (not(exists(path)) or isfile(path)) and path.rsplit(".", maxsplit = 1)[-1] == "mp4":
             return True
         else: return False
     
