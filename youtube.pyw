@@ -6,9 +6,10 @@ from urllib.error import URLError
 from pytube import YouTube, Stream
 from pytube.exceptions import AgeRestrictedError, LiveStreamError, VideoPrivate, VideoUnavailable, PytubeError, MaxRetriesExceeded
 from tkinter import INSIDE, Frame, Label, StringVar, TclError, Tk, Entry, Button, Listbox, Variable
-from tkinter.filedialog import askdirectory, asksaveasfilename
-from tkinter.messagebox import askokcancel, showwarning, askyesnocancel
+from tkinter.filedialog import asksaveasfilename
+from tkinter.messagebox import askokcancel, showwarning
 from os.path import normpath, abspath, exists, join, isfile, split
+from time import sleep
 from threading import Thread
 try: from sys import _MEIPASS
 except ImportError: pass
@@ -51,24 +52,27 @@ class Try_Update_Thread(Thread):
 class Download_Thread(Thread):
     # downloading the requested stream
 
-    def __init__(self, downloader, stream: Stream, path: str, file_name: str) -> None:
+    def __init__(self, downloader) -> None:
         super().__init__()
         self.downloader = downloader
-        self.stream, self.path, self.file = stream, path, file_name
         # set as daemon to quit on window deletion
         self.daemon = True
     
     def run(self) -> None:
-        length = len(self.downloader.downloads)
-        self.downloader.counter_var.set("current downloads: {}".format(length if length >= 1 else "none"))
-        try: self.stream.download(self.path, self.file, skip_existing = False)
-        except URLError:
-            self.downloader.downloads.remove(self)
-            showwarning("No internet connection", "Please connect to the internet to download anything")
-        else: self.downloader.downloads.remove(self)
-        length = len(self.downloader.downloads)
-        self.downloader.counter_var.set("current downloads: {}".format(length if length >= 1 else "none"))
-        del self
+        while True:
+            if len(self.downloader.downloads) >= 1:
+                download = self.downloader.downloads[0]
+                length = len(self.downloader.downloads)
+                self.downloader.counter_var.set("downloads: {}".format(length if length >= 1 else "none"))
+                stream, path, file = download
+                try: stream.download(path, file, skip_existing = False, )
+                except URLError:
+                    self.downloader.downloads.remove(download)
+                    showwarning("No internet connection", "Please connect to the internet to download anything")
+                else: self.downloader.downloads.remove(download)
+                length = len(self.downloader.downloads)
+                self.downloader.counter_var.set("downloads: {}".format(length if length >= 1 else "none"))
+            sleep(0.2)
 
 class Downloader(Tk):
     # ui for downloading
@@ -104,7 +108,7 @@ class Downloader(Tk):
         self.list.insert(-1, *["test"] * 10)
 
         # counter label for currently running downloads
-        self.counter_var = StringVar(self.frame, "current downloads: none")
+        self.counter_var = StringVar(self.frame, "downloads: none")
         self.counter_label = Label(self.frame, textvariable = self.counter_var, background = "#fff")
         self.counter_label.place(x = 10, y = -30, rely = 1, width = -120, relwidth = 1, height = 20)
 
@@ -116,7 +120,12 @@ class Downloader(Tk):
         self.youtube = None
         self.youtube_thread = None
         self.downloads = []
+        self.downloader = Download_Thread(self)
         self.updating = False
+    
+    def mainloop(self, *args, **kwargs) -> None:
+        self.downloader.start()
+        return super().mainloop(*args, **kwargs)
     
     def get_resource_path(self, resource: str) -> str:
         # get resource path of youtube_icon.ico -> stored in temporyra directory _MEIPASS at runtime
@@ -168,9 +177,7 @@ class Downloader(Tk):
             return
         
         # download
-        download = Download_Thread(self, stream, *split(path))
-        self.downloads.append(download)
-        download.start()
+        self.downloads.append((stream, *split(path)))
 
     def choose_path(self, default_filename: str) -> str | Literal[False] | None:
         file = asksaveasfilename(defaultextension = "mp4", initialfile = default_filename)
@@ -216,7 +223,7 @@ class Downloader(Tk):
             answer = askokcancel("Download running", "{} download{} still running.\nDo you want to quit anyway?".format(len(self.downloads), "s are" if len(self.downloads) >= 2 else " is"))
             # if ok: cancel all downloads
             if not(answer): return
-            for download in self.downloads: del download
+            self.downloads.clear()
         self.quit()
         self.destroy()
     
