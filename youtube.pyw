@@ -1,10 +1,10 @@
 # pyinstaller --add-data "./youtube_icon.ico;." --onefile --windowed --icon=youtube_icon.ico --name "Downloader" youtube.pyw
 # example video link: https://www.youtube.com/watch?v=WY230qkLv_8
 
-from typing import Literal
+from typing import Callable, Literal
 from urllib.error import URLError
 from pytube import YouTube, Stream
-from pytube.exceptions import AgeRestrictedError, LiveStreamError, VideoPrivate, VideoUnavailable, PytubeError, MaxRetriesExceeded
+from pytube.exceptions import AgeRestrictedError, LiveStreamError, VideoPrivate, VideoUnavailable, PytubeError
 from tkinter import INSIDE, Frame, Label, StringVar, TclError, Tk, Entry, Button, Listbox, Variable
 from tkinter.filedialog import asksaveasfilename
 from tkinter.messagebox import askokcancel, showwarning
@@ -14,6 +14,9 @@ from threading import Thread
 try: from sys import _MEIPASS
 except ImportError: pass
 from re import match
+from ctypes import windll
+
+windll.shcore.SetProcessDpiAwareness(1)
 
 class Update_Thread(Thread):
     # update the youtube object, when new url/id was entered
@@ -61,17 +64,16 @@ class Download_Thread(Thread):
     def run(self) -> None:
         while True:
             if len(self.downloader.downloads) >= 1:
+                self.downloader.counter_var.set("downloads: {}".format(len(self.downloader.downloads)))
                 download = self.downloader.downloads[0]
-                length = len(self.downloader.downloads)
-                self.downloader.counter_var.set("downloads: {}".format(length if length >= 1 else "none"))
                 stream, path, file = download
-                try: stream.download(path, file, skip_existing = False, )
+                try: stream.download(path, file, skip_existing = False)
                 except URLError:
                     self.downloader.downloads.remove(download)
                     showwarning("No internet connection", "Please connect to the internet to download anything")
                 else: self.downloader.downloads.remove(download)
                 length = len(self.downloader.downloads)
-                self.downloader.counter_var.set("downloads: {}".format(length if length >= 1 else "none"))
+                self.downloader.counter_var.set("downloads: {}".format(length if length > 0 else "none"))
             sleep(0.2)
 
 class Downloader(Tk):
@@ -84,7 +86,7 @@ class Downloader(Tk):
         self.wm_geometry("300x250")
         self.wm_iconbitmap(self.get_resource_path("youtube_icon.ico"))
         self.wm_protocol("WM_DELETE_WINDOW", self.close_handler)
-        self.minsize(300, 250)
+        self.minsize(380, 250)
 
         # main frame for setting background color
         self.frame = Frame(self, background = "#fff")
@@ -99,7 +101,7 @@ class Downloader(Tk):
         self.id = Entry(self.frame, textvariable = self.id_var, background = "#fcc")
         self.id.place(x = 70, y = 10, relwidth = 1, width = -80, height = 20, bordermode = INSIDE)
 
-        Label(self.frame, text = "available downloads:", background = "#fff").place(x = 10, y = 45, width = 120, height = 20, bordermode = INSIDE)
+        Label(self.frame, text = "available downloads:", background = "#fff").place(x = 10, y = 45, width = 140, height = 20, bordermode = INSIDE)
 
         # list of available downloads
         self.list_var = Variable(self.frame, [])
@@ -128,7 +130,7 @@ class Downloader(Tk):
         return super().mainloop(*args, **kwargs)
     
     def get_resource_path(self, resource: str) -> str:
-        # get resource path of youtube_icon.ico -> stored in temporyra directory _MEIPASS at runtime
+        # get resource path of youtube_icon.ico -> stored in temporary directory _MEIPASS at runtime
         try: path = _MEIPASS # exists just when running as exe
         except: path = abspath(".")
         return join(path, resource)
