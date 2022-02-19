@@ -1,7 +1,7 @@
 # pyinstaller --add-data "./youtube_icon.ico;." --onefile --windowed --icon=youtube_icon.ico --name "Downloader" youtube.pyw
 # example video link: https://www.youtube.com/watch?v=WY230qkLv_8
 
-from typing import Callable, Literal
+from typing import Literal
 from urllib.error import URLError
 from pytube import YouTube, Stream
 from pytube.exceptions import AgeRestrictedError, LiveStreamError, VideoPrivate, VideoUnavailable, PytubeError
@@ -37,7 +37,7 @@ class Update_Thread(Thread):
 
 class Try_Update_Thread(Thread):
     # try updating available downloads every 0.2s, if no connection was provided
-    # URLError is not throws on creation of YouTube object
+    # URLError is not thrown on creation of YouTube object
 
     def __init__(self, downloader) -> None:
         super().__init__()
@@ -47,6 +47,7 @@ class Try_Update_Thread(Thread):
         try: self.downloader.list_var.set(self.downloader.parse_streams(self.downloader.youtube.streams.filter(file_extension = "mp4")))
         except URLError:
             self.downloader.list_var.set([" Internet unavailable"])
+            self.downloader.streams.clear()
             self.downloader.updating = self.downloader.after(200, self.downloader.update_downloads)
         else:
             self.downloader.after_cancel(self.downloader.updating)
@@ -119,6 +120,7 @@ class Downloader(Tk):
         self.downloader.place(x = -110, relx = 1, y = -30, rely = 1, width = 100, height = 20, bordermode = INSIDE)
 
         # variables for handling downloads etc.
+        self.streams = {}
         self.youtube = None
         self.youtube_thread = None
         self.downloads = []
@@ -154,22 +156,13 @@ class Downloader(Tk):
             return
 
         # error: no selection
-        try: selection: list[str] = self.list.selection_get().split(", ")
+        try: selection: str = self.list.selection_get()
         except TclError:
             showwarning("No selection", "Please select a download")
             return
         
         # select the correct stream form all available streams
-        if selection[0] == " video & audio":
-            info = {"mime_type": "video/mp4", "resolution": selection[1], "fps": int(selection[2][:-3]), "abr": selection[3]}
-        elif selection[0] == " video":
-            info = {"mime_type": "video/mp4", "resolution": selection[1], "fps": int(selection[2][:-3])}
-        elif selection[0] == " audio":
-            info = {"mime_type": "audio/mp4", "abr": selection[1]}
-        try: stream: Stream = self.youtube.streams.filter(**info)[-1]
-        except URLError:
-            showwarning("No internet connection", "Please connect to the internet to download anything")
-            return
+        stream = self.streams[selection]
         
         # get valid file
         path = self.choose_path(stream.default_filename)
@@ -198,17 +191,27 @@ class Downloader(Tk):
         self.youtube_thread.start()
         self.list_var.set([" Loading..."])
     
+    def get_formatted(self, size_in_bytes: int) -> str:
+        units = ("B", "KB", "MB", "GB", "TB", "PB")
+        for i in range(6):
+            if size_in_bytes >= 1024:
+                size_in_bytes /= 1024
+            else: break
+        return str(round(size_in_bytes, 2)) + units[i]
+    
     def parse_streams(self, streams: list[Stream]) -> list[str]:
         # make list of strings containing all important information from streams to display in available downloads
         result: list[str] = []
+        self.streams.clear()
         for stream in streams:
             if stream.is_progressive:
-                info = " video & audio, {}, {}fps, {}, {}byte".format(stream.resolution, stream.fps, stream.abr, stream.filesize_approx)
+                info = " video & audio, {}, {}fps, {}, {}".format(stream.resolution, stream.fps, stream.abr, self.get_formatted(stream.filesize))
             elif stream.includes_video_track:
-                info = " video, {}, {}fps, {}byte".format(stream.resolution, stream.fps, stream.filesize_approx)
+                info = " video, {}, {}fps, {}".format(stream.resolution, stream.fps, self.get_formatted(stream.filesize))
             elif stream.includes_audio_track:
-                info = " audio, {}, {}byte".format(stream.abr, stream.filesize_approx)
+                info = " audio, {}, {}".format(stream.abr, self.get_formatted(stream.filesize))
             result.append(info)
+            self.streams[info] = stream
         return result
         
     def validate_path(self, path: str) -> bool:
@@ -246,6 +249,7 @@ class Downloader(Tk):
             except URLError:
                 # if no connection: try later
                 self.list_var.set([" Internet unavailable"])
+                self.streams.clear()
                 self.updating = self.after(200, self.update_downloads)
             self.id.configure(background = "#fff")
         else:
@@ -255,6 +259,7 @@ class Downloader(Tk):
             elif isinstance(value, VideoPrivate): self.list_var.set([" Invalid video id: Video is private"])
             elif isinstance(value, VideoUnavailable): self.list_var.set([" Invalid video id: Video is unavailable"])
             else: self.list_var.set([" Invalid video id"])
+            self.streams.clear()
             self.id.configure(background = "#fcc")
         self._youtube = value
 
